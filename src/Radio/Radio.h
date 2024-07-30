@@ -1,7 +1,7 @@
 #ifndef Radio_h
 #define Radio_h
 
-#include <FastCRC.h>
+#include "FastCRC.h"
 #include <limits.h>
 
 enum GAME_TYPE {GAME_NONE,GAME_DEATH_MATCH,GAME_CTF,GAME_DOMINATION,GAME_TEAM_DEATH,GAME_TARGET,GAME_AUTONUMBER};
