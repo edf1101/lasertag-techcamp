@@ -6,12 +6,14 @@
 
 #include <utility>
 
-Gun::Gun(std::string _gunName, int _fireSpeed, int _burstSize, int _clipSize, int _reloadTime) {
+Gun::Gun(std::string _gunName, int _fireSpeed, int _burstSize, int _clipSize, int _reloadTime,
+         XT_Wav_Class *_fireSound) {
   gunName = std::move(_gunName);
   fireSpeed = _fireSpeed;
   burstSize = _burstSize;
   clipSize = _clipSize;
   reloadTime = _reloadTime;
+  myFireSound = _fireSound;
 
   bullets = clipSize;
   shotsLeftInBurst = burstSize;

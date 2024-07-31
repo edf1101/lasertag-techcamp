@@ -2,7 +2,7 @@
  * Created by Ed Fillingham on 30/07/2024.
 */
 
-#include "StudentHidden/StartupScreen.h"
+#include "src/StudentHidden/StartupScreen.h"
 
 
 // u8g2 documentation: https://github.com/olikraus/u8g2/wiki/u8g2reference

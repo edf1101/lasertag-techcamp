@@ -32,9 +32,9 @@
 // N.B. Next V of hardware add 10k pot from ESP32 output to input of amp so can change volume (or maybe just fixed voltage divider set at half voltage)
 // for OEP3W looks like RI is set to 47k- - change to 100k or higher to lower gain (short term fix) on resistors attached (via capacitors) to pins 3/4
 
-#include "Infrared/Infrared.h"
-#include "Radio/Radio.h"
-#include "StudentHidden/StartupScreen.h"
+#include "src/Infrared/Infrared.h"
+#include "src/Radio/Radio.h"
+#include "src/StudentHidden/StartupScreen.h"
 #include "Images.h"
 
 #include "SoundData.h"
@@ -43,7 +43,7 @@
 
 #define mainFont u8g2_font_logisoso16_tf
 
-#include "Menus/Menu.h"
+#include "src/Menus/Menu.h"
 #include <Preferences.h>
 
 Preferences preferences;
@@ -76,10 +76,8 @@ int secsGameStarted = 0;   // secs stamp when game started
 int lastSecsLoop = 0;      // used to track when need to do tasks every second
 
 uint32_t nextAliveMillis = 0;        // used to track when next alllowed to be alive (it is set 10 secs into the future to make the gun temporarily 'dead' if shot but not lost all lives
-uint32_t lastFireMillis = 0;         // used to track when last fired so you can't fire too quickly
 uint32_t nextPickupMillis = 0;       // used to track when to next pickup health pack or ammo
 uint32_t lastStrikeMillis = 0;       // millis that last 'strike' was made
-uint32_t triggerReleasedMillis = 0;  // millis that trigger was last 'not pressed'
 uint32_t stopJoiningMillis = 0;
 uint32_t nextTransmitMillis = 0;
 uint32_t loggedPackets = 0;
@@ -110,18 +108,7 @@ bool notChecking;
 Infrared laserTagIR;
 
 
-XT_Wav_Class lowBatterySound(lowBatteryWav);
-XT_Wav_Class phaserSound(phaserWav);
-XT_Wav_Class countDownSound(countDownWav);
-XT_Wav_Class powerUpSound(powerUpWav);
-XT_Wav_Class gameOverSound(gameOverWav);
-XT_Wav_Class ughSound(ughWav);
-XT_Wav_Class hitSound(hitWav);
-XT_Wav_Class pickupSound(pickupWav);
-XT_Wav_Class explosionSound(explosionWav);
-XT_Wav_Class greenSound(greenWav);
-XT_Wav_Class redSound(redWav);
-XT_Wav_Class checkSound(checkWav);
+
 XT_DAC_Audio_Class DacAudio(DIGITAL_SPKR, 0);  // Create the main player class object.
 // Use GPIO for SPKR and timer 0
 MenuItem *mainMenu;
@@ -532,7 +519,7 @@ void setup() {
 
   mainMenu->activate(menuChange);
 
-  DacAudio.DacVolume = 2;
+  DacAudio.DacVolume = 100;
 
   laserTagIR.init(irPinIn, irPinOut);
 
@@ -744,7 +731,7 @@ void loop() {
       u8g2.sendBuffer();  // transfer internal memory to the display
 
       // Set different sounds for different guns
-      DacAudio.Play(&phaserSound, false);
+      DacAudio.Play(Weapons::currentGun->getFireSound(), false);
       digitalWrite(GREEN, HIGH);
       laserTagIR.sendIR(1, 0, IR_CMD_TEST, 0);
       digitalWrite(GREEN, LOW);
@@ -891,7 +878,6 @@ void loop() {
 
   // Alternate team ...
   if (digitalRead(TRIGGER) == HIGH && !notChecking) {
-    triggerReleasedMillis = millis();
     notChecking = true;
   }
   if (digitalRead(TRIGGER) == LOW) {
@@ -909,13 +895,12 @@ void loop() {
 
     redrawScreen = 1;
     yellowFlashMillis = millis();
-    DacAudio.Play(&phaserSound, false);
+    DacAudio.Play(Weapons::currentGun->getFireSound(), false);
     laserTagIR.sendIR(0, laserConfig.team, laserConfig.unitNum, 0);  // No control mode+team+unitNum +no extra bits
     // Now ignore any IR received when sent    delay(30); // 30ms should be enough to wait until IR sent
     laserTagIR.receiveIR();
     laserTagIR.infraredReceived = 0;
 
-    lastFireMillis = millis();
   }
 
   // Turns yellow LED off

@@ -3,12 +3,13 @@
 
 #include "string"
 #include "Arduino.h"
+#include "XT_DAC_Audio.h"
 
 extern const int TRIGGER;
 
 class Gun { // This class represents a gun
 public:
-    Gun(std::string _gunName, int _fireSpeed, int _burstSize, int _clipSize, int _reloadTime); // Constructor
+    Gun(std::string _gunName, int _fireSpeed, int _burstSize, int _clipSize, int _reloadTime, XT_Wav_Class* _fireSound); // Constructor
 
     void fireGun(); // Fires the gun
 
@@ -24,6 +25,8 @@ public:
 
     std::string getName(){return gunName;}
 
+    XT_Wav_Class *getFireSound(){return myFireSound;}
+
 private:
     std::string gunName; // The name of the gun
     int fireSpeed; // The speed at which the gun can fire
@@ -38,6 +41,8 @@ private:
 
     unsigned long reloadStartMillis;
     unsigned long lastFireMillis;
+
+    XT_Wav_Class *myFireSound;
 };
 
 
