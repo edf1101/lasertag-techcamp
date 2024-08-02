@@ -7,7 +7,7 @@
 #include <utility>
 
 Gun::Gun(std::string _gunName, int _fireSpeed, int _burstSize, int _clipSize, int _reloadTime,
-         XT_Wav_Class *_fireSound) {
+         XT_Wav_Class *_fireSound, float _damage) {
   gunName = std::move(_gunName);
   fireSpeed = _fireSpeed;
   burstSize = _burstSize;
@@ -18,6 +18,7 @@ Gun::Gun(std::string _gunName, int _fireSpeed, int _burstSize, int _clipSize, in
   bullets = clipSize;
   shotsLeftInBurst = burstSize;
   clipsRemaining = 9;
+  damage = _damage;
 }
 
 void Gun::fireGun() {
@@ -75,4 +76,15 @@ void Gun::resetGun() {
   bullets = clipSize;
   clipsRemaining = 9;
 
+}
+
+int Gun::getDamageAsExtra() {
+  // extra data has 3 bits of data
+  // extra=0 is full damage as that's the default
+  // extra=7 = 0 damage
+
+  int damAsInt = 7-max(0,min(7, (int)round(damage * 7)));
+  Serial.println("sending damage");
+Serial.println(damAsInt);
+  return damAsInt;
 }

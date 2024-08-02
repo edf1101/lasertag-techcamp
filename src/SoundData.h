@@ -17,5 +17,6 @@ XT_Wav_Class explosionSound(explosionWav);
 XT_Wav_Class greenSound(greenWav);
 XT_Wav_Class redSound(redWav);
 XT_Wav_Class checkSound(checkWav);
+XT_Wav_Class godShot(godShotWav);
 
 #endif //LASERTAG_TECHCAMP_SOUNDDATA_H

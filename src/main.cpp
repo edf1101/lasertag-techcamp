@@ -1,36 +1,7 @@
 // File | Preferences -> then add this url into additional board managers: https://dl.espressif.com/dl/package_esp32_index.json
 // Tools | Board | Board Manager -> search for ESP32 and intstall
 // Tools | Board | ESP32 Dev Module
-// Also need libraries: XT_DAC_Audio, FASTCRC-master, u8g2
-
-// Need partition set to 1MB App/3MB SPIFFS for logging to work
-
-// To programme:
-// Use USB to Uart converter set at 3.3v
-// Connect:
-// GND to GND
-// TX to RX
-// RX to TX
-// Attach batteries
-// hold in left(prog) button whilst powering on
-// then programme from arduino ide
-
-// Test mode - hold in trigger whilst powering on
-// Will flash green/red/yellow LEDs 4 times then:
-// Press trigger: show 'T', beep, flash green leds and send IR command
-// Press left: Yellow LED turns on and 'L' displayed
-// Send IR signal from any 38khz remote control: 'I' displayed
-// Press up: Green LED flashes and 'U' displayed (if up button fitted)
-// Press down: Red LED flashes and 'D' displayed (if down butotn fitted)
-
-
-// Todo:
-// 3:handle guns feeding back their status at some stage (need to add into packet the gun's lives and ammo)
-// 3:must allow non-volatile storage of unitnum etc
-// 3:allow variable number of secs between radio sends and also add random offset to this delay to guard against clashes
-
-// N.B. Next V of hardware add 10k pot from ESP32 output to input of amp so can change volume (or maybe just fixed voltage divider set at half voltage)
-// for OEP3W looks like RI is set to 47k- - change to 100k or higher to lower gain (short term fix) on resistors attached (via capacitors) to pins 3/4
+// Also need libraries: XT_DAC_Audio, FASTCRC-master, u8g2, MD_REncoder
 
 #include "src/Infrared/Infrared.h"
 #include "src/Radio/Radio.h"
@@ -74,15 +45,15 @@ int wifiChannel = 1;
 int secsSinceStartup = 0;  // increments once a second
 int secsGameStarted = 0;   // secs stamp when game started
 int lastSecsLoop = 0;      // used to track when need to do tasks every second
-
-uint32_t nextAliveMillis = 0;        // used to track when next alllowed to be alive (it is set 10 secs into the future to make the gun temporarily 'dead' if shot but not lost all lives
-uint32_t nextPickupMillis = 0;       // used to track when to next pickup health pack or ammo
-uint32_t lastStrikeMillis = 0;       // millis that last 'strike' was made
+float health = 1;          // health of gun
+uint32_t nextAliveMillis = 0;   // used to track when next alllowed to be alive (it is set 10 secs into the future to make the gun temporarily 'dead' if shot but not lost all lives
+uint32_t nextPickupMillis = 0;  // used to track when to next pickup health pack or ammo
+uint32_t lastStrikeMillis = 0;  // millis that last 'strike' was made
 uint32_t stopJoiningMillis = 0;
 uint32_t nextTransmitMillis = 0;
 uint32_t loggedPackets = 0;
 
-char whoILastHit = -1;
+int whoILastHit = -1;
 char lastTeamWon = -1;
 char mineTriggered = 0;
 char lastIR[3] = {0, 0, 0};
@@ -106,7 +77,6 @@ int encoderPosition = 0;
 int yellowFlashMillis = millis();
 bool notChecking;
 Infrared laserTagIR;
-
 
 
 XT_DAC_Audio_Class DacAudio(DIGITAL_SPKR, 0);  // Create the main player class object.
@@ -177,7 +147,7 @@ void menuChange(const char *itemName, int value) {
   else if (strcmp(itemName, "Tx:Blue Mine") == 0)
     sendIRControl(IR_CMD_BLUE_MINE);
 
-  else if (strcmp(itemName, "Red") == 0) {
+  else if (strcmp(itemName, "Red") == 0 && !laserConfig.isRunning) {
     laserConfig.team = 1;
   } else if (strcmp(itemName, "Green") == 0) {
     laserConfig.team = 0;
@@ -284,7 +254,6 @@ void menuChange(const char *itemName, int value) {
               dp.friendlyFire, dp.initLives, dp.initAmmo, dp.irPower,
               dp.team, dp.lives, dp.ammo, dp.canPlay,
               dp.inGame, dp.hitBy, dp.strikes, dp.battery);
-      Serial.println(buffer);
       i++;
     }
     while (digitalRead(ENC_SW) == HIGH);
@@ -345,7 +314,12 @@ void menuChange(const char *itemName, int value) {
   }
 
   // check all gun types to see if we have a match
-  for (auto & allGun : Weapons::allGuns) {
+  for (auto &allGun: Weapons::allGuns) {
+    if (strcmp(itemName, allGun->getName().c_str()) == 0) {
+      Weapons::currentGun = allGun;
+    }
+  }
+  for (auto &allGun: Weapons::allGodGuns) {
     if (strcmp(itemName, allGun->getName().c_str()) == 0) {
       Weapons::currentGun = allGun;
     }
@@ -385,9 +359,11 @@ void packetRx()
       lastTeamWon = -1;
       mineTriggered = 0;
       Weapons::currentGun->resetGun();
+      health = 1;
     }
     if (laserConfig.inGame && laserConfig.isRunning)  // just moved to game running
     {
+      health = 1;
       if (!countDownSound.Playing)
         DacAudio.Play(&countDownSound, false);
       laserTagIR.setPower(laserConfig.irPower);
@@ -399,18 +375,25 @@ void packetRx()
   }
   if ((laserConfig.gameType == GAME_DOMINATION) && laserConfig.inGame && laserConfig.isRunning &&
       (laserConfig.winner != lastTeamWon)) {
-    if ((laserConfig.winner == 1) && (redSound.Playing == false))
+    if ((laserConfig.winner == 1) && !redSound.Playing)
       DacAudio.Play(&redSound, false);
-    else if ((laserConfig.winner == 0) && (greenSound.Playing == false))
+    else if ((laserConfig.winner == 0) && !greenSound.Playing)
       DacAudio.Play(&greenSound, false);
     lastTeamWon = laserConfig.winner;
   }
   if ((incomingRadioPacket.hitBy == laserConfig.unitNum) &&
-      ((laserConfig.unitNum != whoILastHit) || (millis() > (lastStrikeMillis + 1000)))) {
+      ((incomingRadioPacket.unitNum != whoILastHit) || (millis() > (lastStrikeMillis + 1000)))) {
     whoILastHit = incomingRadioPacket.unitNum;
     lastStrikeMillis = millis();
     laserConfig.strikes++;
-    if (hitSound.Playing == false) DacAudio.Play(&hitSound, false);
+
+    if (Weapons::currentGun->getName() == "LifeSteal") {
+      laserConfig.lives++;
+    }
+    !hitSound.Playing;
+    DacAudio.Play(&hitSound, false);
+    whoILastHit = incomingRadioPacket.unitNum;
+
   }
   if ((laserConfig.gameType == GAME_AUTONUMBER) && (assignedUnitNumber == -1) && laserConfig.canPlay) {
     assignedUnitNumber = laserConfig.sequenceNumber;
@@ -422,26 +405,10 @@ void packetRx()
   }
 }
 
-void setSSD1306VcomDeselect(uint8_t v)
-// These two functions set params on the oled display that can improve the brightness/contrast
-{
-  u8x8_cad_StartTransfer(u8g2.getU8x8());
-  u8x8_cad_SendCmd(u8g2.getU8x8(), 0x0db);
-  u8x8_cad_SendArg(u8g2.getU8x8(), v << 4);
-  u8x8_cad_EndTransfer(u8g2.getU8x8());
-}
-
-void setSSD1306PreChargePeriod(uint8_t p1, uint8_t p2) {
-  u8x8_cad_StartTransfer(u8g2.getU8x8());
-  u8x8_cad_SendCmd(u8g2.getU8x8(), 0x0d9);
-  u8x8_cad_SendArg(u8g2.getU8x8(), (p2 << 4) | p1);
-  u8x8_cad_EndTransfer(u8g2.getU8x8());
-}
-
 void setup() {
   int i;
 
-  Serial.begin(500000);
+  Serial.begin(9600);
   pinMode(RED, OUTPUT);
   pinMode(GREEN, OUTPUT);
   pinMode(YELLOW, OUTPUT);
@@ -452,6 +419,7 @@ void setup() {
   pinMode(MASTER_IN, INPUT_PULLUP);
   pinMode(MASTER_OUT, OUTPUT);
   digitalWrite(MASTER_OUT, LOW);
+
   masterMode = 1;
 
   StartupScreen::startupScreen(&u8g2);
@@ -501,12 +469,18 @@ void setup() {
     mainMenu->addItem("Tools", "Delete Log");
     mainMenu->addItem("Tools", "Dump Log");
     mainMenu->addItem("Tools", "Back");
+
   }
   mainMenu->addItem("Main Menu", "Gun Type");
 
   // iterate through all guns array
-  for (auto & allGun : Weapons::allGuns) {
+  for (auto &allGun: Weapons::allGuns) {
     mainMenu->addItem("Gun Type", allGun->getName().c_str());
+  }
+  if (masterMode) {
+    for (auto &allGun: Weapons::allGodGuns) {
+      mainMenu->addItem("Gun Type", allGun->getName().c_str());
+    }
   }
 
   mainMenu->addItem("Gun Type", "Back");
@@ -525,7 +499,7 @@ void setup() {
 
   // oled setup
 
-  if ((digitalRead(TRIGGER) == LOW))  // Go into test mode if trigger held when starting
+  if (0 && (digitalRead(TRIGGER) == LOW))  // Go into test mode if trigger held when starting
   {
     for (i = 1; i <= 4; i++)  // Flash green/red/yellow LEDs 4 times in order
     {
@@ -587,7 +561,10 @@ void standardDisplay() {
     else
       strcpy(buffer, "Stopped");
   } else if (laserConfig.isRunning) {
-    if (laserConfig.gameType == GAME_DEATH_MATCH)
+    if (millis() <nextAliveMillis){
+      strcpy(buffer, "Respawning");
+    }
+    else if (laserConfig.gameType == GAME_DEATH_MATCH)
       strcpy(buffer, "Death Match");
     else if (laserConfig.gameType == GAME_TEAM_DEATH)
       strcpy(buffer, "Team Death");
@@ -611,23 +588,24 @@ void standardDisplay() {
   u8g2.setCursor((128 - textWidth) >> 1, 16);
   u8g2.print(buffer);
 
-  u8g2.setCursor(0, 38);
-  if (lastIR[0] == 0)
-    u8g2.print(laserConfig.unitNum);
-  else {
-    u8g2.print(lastIR);  // display last IR signal received
-    lastIR[0] = 0;       // Clear it so only shows last IR received once
-  }
+//PRINT KILLS
+  u8g2.drawXBM(0, 22, 16, 16, killIcon);
+  u8g2.setCursor(18, 38);
+  u8g2.print(laserConfig.strikes);
+
   u8g2.drawXBM(43, 22, 16, 16, person);
   strcpy(buffer, u8g2_u8toa((uint8_t) laserConfig.lives, 1));
   u8g2.drawStr(60, 38, buffer);
   u8g2.drawXBM(78, 22, 9, 16, bullet);
   u8g2.setCursor(88, 40);
 
-  u8g2.print(Weapons::currentGun->getShotsInClip());
-  u8g2.print("/");
-  u8g2.print(Weapons::currentGun->getClips());
-
+  if (Weapons::currentGun->getShotsInClip() == 0 && Weapons::currentGun->getClips() > 0) {
+    u8g2.print("RLD");
+  } else {
+    u8g2.print(Weapons::currentGun->getShotsInClip());
+    u8g2.print("/");
+    u8g2.print(Weapons::currentGun->getClips());
+  }
 
   u8g2.setFont(u8g2_font_7x13B_mr);
   unsigned char mins, secs, gamemin, gamesec;
@@ -643,13 +621,15 @@ void standardDisplay() {
   sprintf(buffer, "%02d:%02d %02d:%02d", mins, secs, gamemin, gamesec);
   textWidth = u8g2.getStrWidth(buffer);
   u8g2.setCursor(0, 52);
-  u8g2.print(buffer);
+  u8g2.print(Weapons::currentGun->getName().c_str());
+  u8g2.print(" Unit:");
+  u8g2.print(laserConfig.unitNum);
+
   u8g2.setCursor(0, 64);
-  if (laserConfig.gameType == GAME_NONE)
-    sprintf(buffer, "Green:%d Red:%d", greenOn, redOn);
-  else
-    sprintf(buffer, "Green:%d Red:%d", greenAlive, redAlive);
-  u8g2.print(buffer);
+
+  u8g2.print("Health: ");
+  int healthAsInt = min(100,max(0,(int)round(health*100)));
+    u8g2.print(healthAsInt);
   u8g2.drawXBM(111, 54, 16, 10, batteryIcons + (20 * laserConfig.battery));
   u8g2.sendBuffer();  // transfer internal memory to the display
 }
@@ -757,7 +737,7 @@ void loop() {
 
   secsSinceStartup = millis() / 1000;
 
-  if ((digitalRead(TRIGGER) == HIGH)) //masterMode &&
+  if ((digitalRead(TRIGGER) == HIGH))  //masterMode &&
     encoderPulses = menuService();
 
   if (!laserConfig.canPlay && (encoderPulses != 0)) {
@@ -896,11 +876,16 @@ void loop() {
     redrawScreen = 1;
     yellowFlashMillis = millis();
     DacAudio.Play(Weapons::currentGun->getFireSound(), false);
-    laserTagIR.sendIR(0, laserConfig.team, laserConfig.unitNum, 0);  // No control mode+team+unitNum +no extra bits
+    if (Weapons::currentGun->getName() == "Healer") {
+      sendIRControl(IR_CMD_HEALTH);
+    } else {
+      laserTagIR.sendIR(0, laserConfig.team, laserConfig.unitNum,
+                        Weapons::currentGun->getDamageAsExtra());  // No control mode+team+unitNum +no extra bits
+    }
+
     // Now ignore any IR received when sent    delay(30); // 30ms should be enough to wait until IR sent
     laserTagIR.receiveIR();
     laserTagIR.infraredReceived = 0;
-
   }
 
   // Turns yellow LED off
@@ -915,7 +900,7 @@ void loop() {
   laserTagIR.receiveIR();
   if (laserTagIR.infraredReceived) {
     if (laserTagIR.crcValid && laserTagIR.irPacketIn.control && laserTagIR.irPacketIn.data == infraredCMDExpected) {
-      if (checkSound.Playing == false) DacAudio.Play(&checkSound, false);
+      if (!checkSound.Playing) DacAudio.Play(&checkSound, false);
       infraredCMDExpected = -1;
     }
     if (laserTagIR.irPacketIn.control == 0) {
@@ -967,18 +952,26 @@ void loop() {
             laserTagIR.irPacketIn.data !=
             laserConfig.unitNum)  // shot has come from opposite team or friendly fire mode is on
         {
-          if (laserConfig.gameType != GAME_TARGET) {
-            laserConfig.lives--;
-            nextAliveMillis = millis() + TEMP_DEAD_MILLIS;  // stop firing/being fired at for 10 seconds
+          if (laserConfig.gameType != GAME_TARGET && Weapons::currentGun->getName() != "GodMode") {
+            int damageAsExtra = laserTagIR.irPacketIn.extra;
+            float damageAsFloat = (float) (7.0 - (float) damageAsExtra) / (float) 7.0;
+            if(health <=0){
+              health = 1;
+              laserConfig.lives--;
+              nextAliveMillis = millis() + TEMP_DEAD_MILLIS;  // stop firing/being fired at for 10 seconds
+
+              laserConfig.hitBy = laserTagIR.irPacketIn.data;
+              sendPacket(&laserConfig);
+              delay(random(1, 4));
+              sendPacket(&laserConfig);
+              delay(random(1, 4));
+              sendPacket(&laserConfig);
+              laserConfig.hitBy = -1;
+              if (!ughSound.Playing) DacAudio.Play(&ughSound, false);
+            }
+            standardDisplay();
           }
-          laserConfig.hitBy = laserTagIR.irPacketIn.data;
-          sendPacket(&laserConfig);
-          delay(random(1, 4));
-          sendPacket(&laserConfig);
-          delay(random(1, 4));
-          sendPacket(&laserConfig);
-          laserConfig.hitBy = -1;
-          if (ughSound.Playing == false) DacAudio.Play(&ughSound, false);
+
         }
       } else if ((laserTagIR.irPacketIn.control == 1)
                  && laserConfig.isRunning && laserConfig.inGame)  // if received a control message and am running
@@ -988,7 +981,7 @@ void loop() {
           {
             laserConfig.lives++;
             nextAliveMillis = millis() + TEMP_DEAD_MILLIS;  // don't resurrect for 10 secs
-            if (powerUpSound.Playing == false) DacAudio.Play(&powerUpSound, false);
+            if (!powerUpSound.Playing) DacAudio.Play(&powerUpSound, false);
           } else if ((laserConfig.team == 1) && (laserConfig.lives) &&
                      (laserConfig.gameType == GAME_CTF))  // If I'm red and alive, I've captured the flag!
             controlGame(laserConfig.controllerNum, laserConfig.gameType, 0, 0, 1);                          // red won
@@ -1004,7 +997,7 @@ void loop() {
         } else if ((laserTagIR.irPacketIn.data == IR_CMD_HEALTH) && (laserConfig.lives < laserConfig.initLives) &&
                    (millis() > nextPickupMillis)) {
           laserConfig.lives++;
-          if (pickupSound.Playing == false) DacAudio.Play(&pickupSound, false);
+          if (!pickupSound.Playing) DacAudio.Play(&pickupSound, false);
           nextPickupMillis = millis() + 3000;  // don't pickup again for 10 secs
         } else if ((laserTagIR.irPacketIn.data == IR_CMD_DOMINATION) && laserConfig.lives)
           controlGame(laserConfig.controllerNum, laserConfig.gameType, 1, 0, laserConfig.team);
@@ -1012,19 +1005,19 @@ void loop() {
                  (millis() > nextPickupMillis)) {
           laserConfig.ammo = ((laserConfig.ammo + 50) > laserConfig.initAmmo ? laserConfig.initAmmo : laserConfig.ammo +
                                                                                                       50);
-          if (pickupSound.Playing == false) DacAudio.Play(&pickupSound, false);
+          if (!pickupSound.Playing) DacAudio.Play(&pickupSound, false);
           nextPickupMillis = millis() + 3000;  // don't pickup again for 10 secs
         } else if ((laserTagIR.irPacketIn.data == IR_CMD_BLUE_MINE) && laserConfig.team && laserConfig.lives &&
                    (millis() > nextAliveMillis) && !mineTriggered) {
           laserConfig.lives--;
           nextAliveMillis = millis() + TEMP_DEAD_MILLIS;  // stop firing/being fired at for 10 seconds
-          if (explosionSound.Playing == false) DacAudio.Play(&explosionSound, false);
+          if (!explosionSound.Playing) DacAudio.Play(&explosionSound, false);
           mineTriggered = 1;
         } else if ((laserTagIR.irPacketIn.data == IR_CMD_RED_MINE) && !laserConfig.team && laserConfig.lives &&
                    (millis() > nextAliveMillis) && !mineTriggered) {
           laserConfig.lives--;
           nextAliveMillis = millis() + TEMP_DEAD_MILLIS;  // stop firing/being fired at for 10 seconds
-          if (explosionSound.Playing == false) DacAudio.Play(&explosionSound, false);
+          if (!explosionSound.Playing) DacAudio.Play(&explosionSound, false);
           mineTriggered = 1;
         }
       }
