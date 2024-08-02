@@ -110,7 +110,7 @@ void controlGame(unsigned char gameNum, GAME_TYPE thisGameType, unsigned char is
   } else
     iAmGameController = 0;
   memcpy(&masterController, &laserConfig, sizeof(datapacketstruct));
-  masterController.controllerNum = gameNum;
+  masterController.controllerNum = laserConfig.controllerNum;
   masterController.sequenceNumber++;
   masterController.gameType = thisGameType;
   masterController.isRunning = isRunning;
@@ -955,6 +955,7 @@ void loop() {
           if (laserConfig.gameType != GAME_TARGET && Weapons::currentGun->getName() != "GodMode") {
             int damageAsExtra = laserTagIR.irPacketIn.extra;
             float damageAsFloat = (float) (7.0 - (float) damageAsExtra) / (float) 7.0;
+            health -= damageAsFloat;
             if(health <=0){
               health = 1;
               laserConfig.lives--;
