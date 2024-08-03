@@ -9,7 +9,7 @@ class Weapons {
 
 public:
     // DO NOT MODIFY THE LZR pistol weapon !!!
-    static inline Gun LaserPistol = Gun("LZR Gun", 400, -1, 30, 2000,&phaserSound,0.5);
+    static inline Gun LaserPistol = Gun("LZR Gun", 400, -1, 30, 2000,&phaserSound,0.4);
 
     // define your guns here
     static inline Gun M4 = Gun("M4", 500, -1, 20, 2000,&phaserSound,0.6);
@@ -19,7 +19,7 @@ public:
     static inline Gun Healer = Gun("Healer", 100, -1, 30, 2000,&pickupSound,1);
     static inline Gun GodMode = Gun("GodMode", 25, -1, 30, 500,&godShot,1);
     static inline Gun LifeSteal = Gun("LifeSteal", 1000, 1, 10, 2500,&pickupSound,1);
-    static inline Gun AWP = Gun("AWP", 2000, 1, 3, 4000,&M16Sound,1);
+    static inline Gun AWP = Gun("AWP", 2000, 1, 3, 4000, &sniperShotSound, 1);
 
 
     // Add all normal guns into this list

@@ -30,6 +30,8 @@ public:
 
     int getDamageAsExtra();
 
+    void setClips(int clips) { clipsRemaining = clips; }
+
 private:
     std::string gunName; // The name of the gun
     int fireSpeed; // The speed at which the gun can fire

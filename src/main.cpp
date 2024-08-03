@@ -368,6 +368,7 @@ void packetRx()
         DacAudio.Play(&countDownSound, false);
       laserTagIR.setPower(laserConfig.irPower);
     }
+    Weapons::currentGun->setClips(laserConfig.ammo);
     if (!laserConfig.isRunning)  // just moved to game stopped
     {
       if (!gameOverSound.Playing) DacAudio.Play(&gameOverSound, false);
@@ -390,8 +391,8 @@ void packetRx()
     if (Weapons::currentGun->getName() == "LifeSteal") {
       laserConfig.lives++;
     }
-    !hitSound.Playing;
-    DacAudio.Play(&hitSound, false);
+    if (!hitSound.Playing) DacAudio.Play(&hitSound, false);
+
     whoILastHit = incomingRadioPacket.unitNum;
 
   }
@@ -420,7 +421,7 @@ void setup() {
   pinMode(MASTER_OUT, OUTPUT);
   digitalWrite(MASTER_OUT, LOW);
 
-  masterMode = 1;
+  masterMode = 0;
 
   StartupScreen::startupScreen(&u8g2);
 
@@ -445,8 +446,8 @@ void setup() {
     mainMenu->addItem("Game Control", "Trgt Practice");
     mainMenu->addItem("Game Control", "Back");
     mainMenu->addItem("Main Menu", "Game Setup");
-    mainMenu->addItem("Game Setup", "Lives", 1, 5, 1);
-    mainMenu->addItem("Game Setup", "Ammo", 0, 1000, 0, 50);
+    mainMenu->addItem("Game Setup", "Lives", 1, 5, 3);
+    mainMenu->addItem("Game Setup", "Ammo", 0, 30, 9, 1);
     mainMenu->addItem("Game Setup", "Frndly Fire", 0, 1, 0);
     mainMenu->addItem("Game Setup", "IR Power", 0, 3, irPower);
     mainMenu->addItem("Game Setup", "I'm Playing", 0, 1, playing);
@@ -561,10 +562,9 @@ void standardDisplay() {
     else
       strcpy(buffer, "Stopped");
   } else if (laserConfig.isRunning) {
-    if (millis() <nextAliveMillis){
+    if (millis() < nextAliveMillis) {
       strcpy(buffer, "Respawning");
-    }
-    else if (laserConfig.gameType == GAME_DEATH_MATCH)
+    } else if (laserConfig.gameType == GAME_DEATH_MATCH)
       strcpy(buffer, "Death Match");
     else if (laserConfig.gameType == GAME_TEAM_DEATH)
       strcpy(buffer, "Team Death");
@@ -604,7 +604,10 @@ void standardDisplay() {
   } else {
     u8g2.print(Weapons::currentGun->getShotsInClip());
     u8g2.print("/");
-    u8g2.print(Weapons::currentGun->getClips());
+    if (laserConfig.ammo == 0 || laserConfig.ammo == 1023) // infinite ammo
+      u8g2.print("-");
+    else
+      u8g2.print(Weapons::currentGun->getClips());
   }
 
   u8g2.setFont(u8g2_font_7x13B_mr);
@@ -628,8 +631,8 @@ void standardDisplay() {
   u8g2.setCursor(0, 64);
 
   u8g2.print("Health: ");
-  int healthAsInt = min(100,max(0,(int)round(health*100)));
-    u8g2.print(healthAsInt);
+  int healthAsInt = min(100, max(0, (int) round(health * 100)));
+  u8g2.print(healthAsInt);
   u8g2.drawXBM(111, 54, 16, 10, batteryIcons + (20 * laserConfig.battery));
   u8g2.sendBuffer();  // transfer internal memory to the display
 }
@@ -816,6 +819,7 @@ void loop() {
 
   if (millis() > nextTransmitMillis) {
     // Send regular status update over the radio
+    laserConfig.hitBy = -1;
     sendPacket(&laserConfig);
     nextTransmitMillis = millis() + 4900 + random(0,
                                                   201);  // Transmit roughly every 5 seconds, but add some random variation to avoid regular collisions
@@ -956,11 +960,21 @@ void loop() {
             int damageAsExtra = laserTagIR.irPacketIn.extra;
             float damageAsFloat = (float) (7.0 - (float) damageAsExtra) / (float) 7.0;
             health -= damageAsFloat;
-            if(health <=0){
+
+
+            laserConfig.hitBy = laserTagIR.irPacketIn.data;
+            sendPacket(&laserConfig);
+            delay(random(1, 4));
+            sendPacket(&laserConfig);
+            delay(random(1, 4));
+            sendPacket(&laserConfig);
+            laserConfig.hitBy = -1;
+            if (!ughSound.Playing) DacAudio.Play(&ughSound, false);
+            if (health <= 0) {
               health = 1;
               laserConfig.lives--;
               nextAliveMillis = millis() + TEMP_DEAD_MILLIS;  // stop firing/being fired at for 10 seconds
-
+              if (!flatlineSound.Playing) DacAudio.Play(&flatlineSound, false);
               laserConfig.hitBy = laserTagIR.irPacketIn.data;
               sendPacket(&laserConfig);
               delay(random(1, 4));
@@ -968,7 +982,6 @@ void loop() {
               delay(random(1, 4));
               sendPacket(&laserConfig);
               laserConfig.hitBy = -1;
-              if (!ughSound.Playing) DacAudio.Play(&ughSound, false);
             }
             standardDisplay();
           }
